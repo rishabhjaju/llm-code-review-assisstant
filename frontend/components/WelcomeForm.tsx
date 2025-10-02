@@ -209,21 +209,6 @@ export default function WelcomeForm({ onClose }: { onClose?: () => void }) {
             </div>
           </div>
         </Modal>
-
-        <div className="mt-4">
-          <label className="block text-sm font-medium">Optional Gemini / GenAI API key</label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Paste your API key to enable cloud analysis"
-            className="mt-1 block w-full rounded border px-2 py-1"
-          />
-          <div className="mt-2 flex gap-2">
-            <button onClick={saveKey} className="px-3 py-1 bg-blue-600 text-white rounded">Save Key</button>
-            <button onClick={() => { setApiKey(''); localStorage.removeItem('llm-api-key'); if (onClose) onClose() }} className="px-3 py-1 bg-gray-200 rounded">Clear</button>
-          </div>
-        </div>
       </div>
     </div>
   )

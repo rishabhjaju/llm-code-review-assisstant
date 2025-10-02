@@ -13,244 +13,149 @@ import {
   Target
 } from 'lucide-react'
 import { AnalysisResult, CodeIssue } from '@/types'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
+import MiniChart from './MiniChart'
+import type { AnalyzeResponse, Comment as CommentType } from '../types'
 
-interface MetricsPanelProps {
-  analysisResult: AnalysisResult
-}
+export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLoadHistory }: { analysis: AnalyzeResponse | null, onCommentsUpdate?: (c: CommentType[]) => void, history?: any[], onLoadHistory?: (item: any) => void }) {
+  if (!analysis) return null
 
-export default function MetricsPanel({ analysisResult }: MetricsPanelProps) {
-  const { metrics, issues, suggestions, timestamp } = analysisResult
+  const [comments, setComments] = useState<CommentType[]>([])
 
-  // Prefer backend metrics if available, fallback to frontend
-  const cyclomaticComplexity = metrics.cc_avg ?? metrics.complexity;
-  const maintainabilityIndex = metrics.mi_avg ?? metrics.maintainability;
-  const pylintScore = metrics.pylint_score ?? null;
-  const namingQuality = metrics.naming_quality ?? null;
+  useEffect(() => {
+    setComments((analysis.comments || []).map((c) => ({ ...c })))
+  }, [analysis])
 
-  const getSeverityIcon = (severity: CodeIssue['severity']) => {
-    switch (severity) {
-      case 'error':
-        return <AlertTriangle className="h-4 w-4 text-red-500" />
-      case 'warning':
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />
-      case 'info':
-        return <Info className="h-4 w-4 text-blue-500" />
-    }
+  const updateComment = (idx: number, field: string, value: any) => {
+    const copy = [...comments]
+    copy[idx] = { ...copy[idx], [field]: value }
+    setComments(copy)
   }
 
-  const getSeverityColor = (severity: CodeIssue['severity']) => {
-    switch (severity) {
-      case 'error': return 'border-red-200 bg-red-50'
-      case 'warning': return 'border-yellow-200 bg-yellow-50'
-      case 'info': return 'border-blue-200 bg-blue-50'
-    }
+  const addComment = () => {
+    setComments([{ line: null, column: null, severity: 'info', category: 'Other', message: '', suggestion: '' }, ...comments])
   }
 
-  const getComplexityColor = (complexity: number) => {
-    if (complexity <= 3) return 'text-green-600'
-    if (complexity <= 7) return 'text-yellow-600'
-    return 'text-red-600'
+  const removeComment = (idx: number) => {
+    const copy = [...comments]
+    copy.splice(idx, 1)
+    setComments(copy)
   }
 
-  const getMaintainabilityColor = (score: number) => {
-    if (score >= 80) return 'text-green-600'
-    if (score >= 60) return 'text-yellow-600'
-    return 'text-red-600'
+  const saveComments = () => {
+    if (onCommentsUpdate) onCommentsUpdate(comments)
   }
-
-  if (!analysisResult) return null
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-          <BarChart3 className="h-6 w-6" />
-          Code Analysis Results
-        </h2>
-        <div className="text-sm text-gray-500 flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          {timestamp.toLocaleString()}
+    <div className="p-4">
+      <h3 className="text-lg font-semibold">Summary</h3>
+
+      {analysis.summary ? (
+        <>
+          <p className="mt-2 text-sm text-gray-700">{analysis.summary.summary}</p>
+          {analysis.summary.key_points && analysis.summary.key_points.length > 0 && (
+            <ul className="mt-2 text-sm list-disc pl-5 space-y-1">
+              {analysis.summary.key_points.map((kp, i) => (
+                <li key={i} className="text-sm text-gray-600">{kp}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : analysis.summary_error ? (
+        <div className="mt-2 text-sm text-red-600">LLM summary error: {analysis.summary_error}</div>
+      ) : (
+        <p className="mt-2 text-sm text-gray-500">No summary available.</p>
+      )}
+
+      <div className="mt-4">
+        <h4 className="font-medium">Review Comments</h4>
+
+        {analysis.comments_validation_errors?.length ? (
+          <div className="text-sm text-yellow-700">Validation: {analysis.comments_validation_errors.join('; ')}</div>
+        ) : null}
+
+        <div className="mt-2 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={addComment} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">Add</button>
+            <button onClick={saveComments} className="px-2 py-1 bg-green-500 text-white rounded text-sm">Save Edits</button>
+          </div>
+
+          {comments.length === 0 ? <div className="text-sm text-gray-500 mt-2">No issues found</div> :
+            comments.map((it: any, idx: number) => (
+              <div key={idx} className="p-2 border rounded grid grid-cols-12 gap-2 items-start">
+                <div className="col-span-2">
+                  <input type="number" value={it.line ?? ''} onChange={(e) => updateComment(idx, 'line', e.target.value ? parseInt(e.target.value) : null)} placeholder="line" className="w-full border rounded px-1 py-0.5 text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <select value={it.severity || 'info'} onChange={(e) => updateComment(idx, 'severity', e.target.value)} className="w-full border rounded px-1 py-0.5 text-sm">
+                    <option value="error">error</option>
+                    <option value="warning">warning</option>
+                    <option value="info">info</option>
+                  </select>
+                </div>
+                <div className="col-span-3">
+                  <select value={it.category || 'Other'} onChange={(e) => updateComment(idx, 'category', e.target.value)} className="w-full border rounded px-1 py-0.5 text-sm">
+                    <option>Performance</option>
+                    <option>Readability</option>
+                    <option>Security</option>
+                    <option>Maintainability</option>
+                    <option>Style</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div className="col-span-10">
+                  <input type="text" value={it.message || ''} onChange={(e) => updateComment(idx, 'message', e.target.value)} placeholder="message" className="w-full border rounded px-1 py-0.5 text-sm" />
+                  <input type="text" value={it.suggestion || ''} onChange={(e) => updateComment(idx, 'suggestion', e.target.value)} placeholder="suggestion" className="w-full border rounded px-1 py-0.5 text-sm mt-1" />
+                </div>
+                <div className="col-span-2 flex flex-col gap-1">
+                  <button onClick={() => removeComment(idx)} className="px-2 py-0.5 bg-red-500 text-white rounded text-xs">Remove</button>
+                </div>
+              </div>
+            ))}
+
+          {analysis.comments_raw ? (
+            <div className="mt-3 text-sm">
+              <h5 className="font-medium">LLM raw response</h5>
+              <pre className="bg-gray-50 p-2 text-xs overflow-auto">{analysis.comments_raw}</pre>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      
+      <div className="mt-6">
+        <h4 className="font-medium">Metric Trends</h4>
+        <div className="mt-2 grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-sm">Coding standards</div>
+            <div className="mt-1">
+              <MiniChart values={(history || []).map(h => (h.metrics?.coding_standards ?? 0))} />
+            </div>
+            <div className="text-xs mt-1 text-gray-600">{analysis.metrics?.coding_standards ?? '-'}</div>
+          </div>
+
+          <div>
+            <div className="text-sm">OOP compliance</div>
+            <div className="mt-1">
+              <MiniChart values={(history || []).map(h => (h.metrics?.oop_compliance ?? 0) * 100)} color="#7c3aed" />
+            </div>
+            <div className="text-xs mt-1 text-gray-600">{analysis.metrics?.oop_compliance ?? '-'}</div>
+          </div>
         </div>
       </div>
 
-      {/* Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Lines of Code</p>
-                <p className="text-2xl font-bold text-gray-900">{metrics.linesOfCode ?? 'N/A'}</p>
+      <div className="mt-6">
+        <h4 className="font-medium">History</h4>
+        <div className="mt-2 space-y-2">
+          {(history || []).length === 0 ? <div className="text-sm text-gray-500">No history</div> :
+            (history || []).map((h, i) => (
+              <div key={i} className="flex items-center justify-between p-2 border rounded">
+                <div className="text-sm">{new Date(h.timestamp).toLocaleString()}</div>
+                <div className="flex gap-2">
+                  <button onClick={() => onLoadHistory && onLoadHistory(h)} className="px-2 py-1 bg-gray-100 rounded text-sm">Load</button>
+                </div>
               </div>
-              <FileText className="h-8 w-8 text-blue-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 flex items-center gap-1">
-                  Cyclomatic Complexity
-                  {metrics.cc_avg !== undefined && <span className="ml-1 text-xs text-gray-400">(backend)</span>}
-                  {metrics.cc_avg === undefined && metrics.complexity !== undefined && <span className="ml-1 text-xs text-gray-400">(frontend)</span>}
-                </p>
-                <p className={`text-2xl font-bold ${getComplexityColor(Number(cyclomaticComplexity))}`}>
-                  {cyclomaticComplexity !== undefined ? cyclomaticComplexity.toFixed(2) : 'N/A'}
-                </p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-purple-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 flex items-center gap-1">
-                  Maintainability Index
-                  {metrics.mi_avg !== undefined && <span className="ml-1 text-xs text-gray-400">(backend)</span>}
-                  {metrics.mi_avg === undefined && metrics.maintainability !== undefined && <span className="ml-1 text-xs text-gray-400">(frontend)</span>}
-                </p>
-                <p className={`text-2xl font-bold ${getMaintainabilityColor(Number(maintainabilityIndex))}`}>
-                  {maintainabilityIndex !== undefined ? maintainabilityIndex.toFixed(2) : 'N/A'}
-                </p>
-              </div>
-              <Target className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Pylint Score {metrics.pylint_score !== undefined && <span className="ml-1 text-xs text-gray-400">(backend)</span>}</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {pylintScore !== null && pylintScore !== undefined ? pylintScore.toFixed(2) : 'N/A'}
-                </p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-emerald-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Naming Quality {metrics.naming_quality !== undefined && <span className="ml-1 text-xs text-gray-400">(backend)</span>}</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {namingQuality !== null && namingQuality !== undefined ? (namingQuality * 100).toFixed(1) + '%' : 'N/A'}
-                </p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-blue-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Test Coverage {metrics.testCoverage !== undefined && <span className="ml-1 text-xs text-gray-400">(frontend)</span>}</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {metrics.testCoverage !== undefined ? `${metrics.testCoverage}%` : 'N/A'}
-                </p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-emerald-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Issues */}
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Issues Found ({issues?.length})
-            </h3>
-          </CardHeader>
-          <CardContent>
-            {issues?.length > 0 ? (
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {issues.map((issue, index) => (
-                  <div
-                    key={index}
-                    className={`p-3 rounded-lg border ${getSeverityColor(issue.severity)}`}
-                  >
-                    <div className="flex items-start gap-3">
-                      {getSeverityIcon(issue.severity)}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 mb-1">
-                          {issue.message}
-                        </p>
-                        <div className="flex items-center gap-4 text-xs text-gray-500">
-                          <span>Line {issue.line}:{issue.column}</span>
-                          <span className="bg-gray-100 px-2 py-1 rounded">
-                            {issue.rule}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                <p className="text-gray-500">No issues found in your code!</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Suggestions */}
-        <Card>
-          <CardHeader>
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Info className="h-5 w-5 text-blue-500" />
-              Suggestions ({suggestions?.length})
-            </h3>
-          </CardHeader>
-          <CardContent>
-            {suggestions?.length > 0 ? (
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {suggestions.map((suggestion, index) => (
-                  <div
-                    key={index}
-                    className="p-3 bg-blue-50 border border-blue-200 rounded-lg"
-                  >
-                    <p className="text-sm text-blue-800">{suggestion}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                <p className="text-gray-500">Your code looks great!</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Actions */}
-      <div className="flex flex-wrap gap-3">
-        <Button variant="outline">
-          Export Report
-        </Button>
-        <Button variant="outline">
-          Share Results
-        </Button>
-        <Button variant="outline">
-          View History
-        </Button>
+            ))}
+        </div>
       </div>
     </div>
   )

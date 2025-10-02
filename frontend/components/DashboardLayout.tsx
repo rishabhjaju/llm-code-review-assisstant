@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import FileUpload from '@/components/FileUpload'
 import CodeEditor from '@/components/CodeEditor'
@@ -17,13 +17,14 @@ import {
   Settings,
   ArrowLeft 
 } from 'lucide-react'
-import { FileData, AnalysisResult } from '@/types'
+import { FileData, AnalysisResult, FrontendAnalysis } from '@/types'
 import { getLanguageFromExtension, getFileExtension } from '@/lib/utils'
 import apiClient from '../lib/api'
 
 export default function DashboardLayout() {
   const [currentFile, setCurrentFile] = useState<FileData | null>(null)
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+  const [analysisResult, setAnalysisResult] = useState<FrontendAnalysis | null>(null)
+  const [history, setHistory] = useState<FrontendAnalysis[]>([])
   const [showMetrics, setShowMetrics] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -34,6 +35,18 @@ export default function DashboardLayout() {
     const savedApiKey = localStorage.getItem('llm-api-key')
     if (savedApiKey) {
       apiClient.setApiKey(savedApiKey)
+    }
+    // load history
+    try {
+      const raw = localStorage.getItem('analysis-history')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        // parse timestamps into Date
+        const fixed = (parsed || []).map((h: any) => ({ ...h, timestamp: h.timestamp ? new Date(h.timestamp) : new Date() }))
+        setHistory(fixed)
+      }
+    } catch (e) {
+      console.warn('could not load history', e)
     }
   }, [])
 
@@ -76,35 +89,57 @@ export default function DashboardLayout() {
 
       // pick mode by presence of a stored API key
       const userApiKey = typeof window !== 'undefined' ? localStorage.getItem('llm-api-key') : null
-      const mode = userApiKey ? 'cloud' : 'local'
+      const useMode = userApiKey ? 'cloud' : 'local'
 
       const features = { summary: true, review: true, metrics: true, tags: true, docs: true }
-      const analysis = await apiClient.analyzeCode(fileToSend, mode, features)
-
-      const result = {
-        metrics: {
-          linesOfCode: currentFile.content.split('\n').length,
-          complexity: analysis.complexity ?? 0,
-          maintainability: analysis.maintainability ?? 0,
-          testCoverage: analysis.testCoverage ?? 0,
-          cc_avg: analysis.cc_avg,
-          mi_avg: analysis.mi_avg,
-          pylint_score: analysis.pylint_score,
-          naming_quality: analysis.naming_quality,
-          execution_time_estimate_ms: analysis.execution_time_estimate_ms,
-          oop_compliance: analysis.oop_compliance,
-          coding_standards: analysis.coding_standards
-        },
-        issues: analysis.issues ?? analysis.comments ?? [],
-        suggestions: analysis.suggestions ?? [],
-        summary: analysis.summary,
-        tags: analysis.tags ?? [],
-        docs: analysis.docs ?? [],
-        timestamp: new Date()
+      const res = await apiClient.analyzeCode(fileToSend, useMode, features)
+      // Normalize response fields
+      const metrics = res.metrics || {}
+      // ensure structured summary object
+      let summaryObj = null
+      if (res.summary) {
+        if (typeof res.summary === 'string') {
+          summaryObj = { summary: res.summary, key_points: [] }
+        } else if (typeof res.summary === 'object') {
+          summaryObj = { summary: res.summary.summary ?? JSON.stringify(res.summary), key_points: res.summary.key_points ?? [] }
+        } else {
+          summaryObj = null
+        }
       }
 
-      setAnalysisResult(result)
+      const analysis: FrontendAnalysis = {
+        metrics,
+        issues: res.comments ?? res.issues ?? [],
+        suggestions: res.suggestions ?? [],
+        summary: summaryObj,
+        tags: res.tags ?? [],
+        docs: res.docs ?? [],
+        summary_error: res.summary_error,
+        comments_error: res.comments_error,
+        tags_error: res.tags_error,
+        docs_error: res.docs_error,
+        timestamp: new Date(),
+      }
+      setAnalysisResult(analysis)
       setShowMetrics(true)
+
+      // persist to history (keep last 20)
+      try {
+  const newHist = [analysis, ...history].slice(0, 20)
+  setHistory(newHist)
+  // serialize dates
+  const serial = newHist.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
+  localStorage.setItem('analysis-history', JSON.stringify(serial))
+  // attempt to post to server history
+  try {
+    const base = apiClient.baseUrl || ''
+    await fetch(`${base}/api/v1/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(analysis) })
+  } catch (e) {
+    console.warn('could not post history to server', e)
+  }
+      } catch (e) {
+        console.warn('could not save history', e)
+      }
     } catch (err) {
       console.error('Analysis failed', err)
     } finally {
@@ -129,6 +164,51 @@ export default function DashboardLayout() {
       URL.revokeObjectURL(url)
       setIsSaving(false)
     }, 500)
+  }
+
+  const downloadBlob = async (res: Response, defaultName: string) => {
+    const blob = await res.blob()
+    // attempt to get filename from Content-Disposition
+    const cd = res.headers.get('Content-Disposition') || ''
+    let filename = defaultName
+    const m = cd.match(/filename="?([^";]+)"?/)
+    if (m && m[1]) filename = m[1]
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleExport = async (format: 'json' | 'sarif') => {
+    if (!analysisResult) return
+    try {
+      const payload = {
+        filename: currentFile?.name?.replace(/\.[^.]+$/, '') ?? 'analysis',
+        format,
+        comments: analysisResult.issues ?? [],
+        metrics: analysisResult.metrics ?? {},
+        tags: analysisResult.tags ?? [],
+        summary: analysisResult.summary ?? null
+      }
+      const base = apiClient.baseUrl || ''
+      const res = await fetch(`${base}/api/v1/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('Export failed', body)
+        return
+      }
+      await downloadBlob(res, `${payload.filename}.${format === 'sarif' ? 'sarif.json' : 'json'}`)
+    } catch (err) {
+      console.error('Export error', err)
+    }
   }
 
   return (
@@ -170,6 +250,28 @@ export default function DashboardLayout() {
               <Save className="h-4 w-4 mr-2" />
               Save File
             </Button>
+            <div className="flex items-center gap-2">
+              <button onClick={async () => {
+                try {
+                  const base = apiClient.baseUrl || ''
+                  const r = await fetch(`${base}/api/v1/history`)
+                  if (!r.ok) return
+                  const data = await r.json()
+                  const items = (data.items || []).map((h: any) => ({ ...h, timestamp: h.timestamp ? new Date(h.timestamp) : new Date() }))
+                  setHistory(items)
+                } catch (e) {
+                  console.error('fetch history', e)
+                }
+              }} className="px-3 py-1 bg-gray-200 rounded">Load Server History</button>
+
+              <button onClick={async () => {
+                try {
+                  const base = apiClient.baseUrl || ''
+                  const r = await fetch(`${base}/api/v1/history`, { method: 'DELETE' })
+                  if (r.ok) setHistory([])
+                } catch (e) { console.error('clear history', e) }
+              }} className="px-3 py-1 bg-red-100 rounded">Clear Server History</button>
+            </div>
           </div>
         </div>
       </header>
@@ -242,7 +344,23 @@ export default function DashboardLayout() {
 
               {/* Metrics Panel */}
               {showMetrics && analysisResult && (
-                <MetricsPanel analysisResult={analysisResult} />
+                <MetricsPanel
+                  analysis={analysisResult}
+                  history={history}
+                  onLoadHistory={(item: any) => {
+                    // load historical analysis into UI
+                    setAnalysisResult(item)
+                    // optionally load file content if stored (not implemented)
+                  }}
+                  onCommentsUpdate={(updatedComments) => {
+                    // persist edits into local UI state
+                    setAnalysisResult((prev: any) => ({
+                      ...prev,
+                      issues: updatedComments,
+                      comments: updatedComments
+                    }))
+                  }}
+                />
               )}
             </div>
           </div>

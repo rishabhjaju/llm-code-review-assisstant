@@ -10,11 +10,11 @@
 /coverage
 
 # next.js
-/.next/
-/out/
+/frontend/.next/
+/frontend/out/
 
 # production
-/build
+/frontend/build
 
 # misc
 .DS_Store
@@ -34,3 +34,47 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# -----------------
+# Backend / Python
+# -----------------
+# Virtual environments
+/backend/.venv/
+/.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode
+**/__pycache__/
+**/*.py[cod]
+*.pyc
+*.pyo
+
+# Pytest / test caches
+.pytest_cache/
+.mypy_cache/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Local secrets and env
+.env
+.env.*
+
+# Runtime data
+backend/data/*.json
+
+# IDE/editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

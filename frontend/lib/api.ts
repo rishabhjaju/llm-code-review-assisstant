@@ -21,27 +21,26 @@ export interface Issue {
 
 export class ApiClient {
   baseUrl: string
-  private apiKey: string | null
-
-  constructor(baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') {
-    this.baseUrl = baseUrl
-    this.apiKey = null
+  _apiKey?: string | null
+  constructor(base = '') {
+    // Prefer explicit constructor arg, then NEXT_PUBLIC_API_URL, then NEXT_PUBLIC_API_BASE
+    const envBase = (process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || '').trim()
+    let baseCandidate = base || envBase || ''
+    // remove trailing slash to avoid double-slash when building endpoints
+    if (baseCandidate.endsWith('/')) baseCandidate = baseCandidate.slice(0, -1)
+    this.baseUrl = baseCandidate
   }
 
-  setApiKey(key: string) {
-    this.apiKey = key
-  }
-
-  private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+  setApiKey(key: string | null) {
+    this._apiKey = key
+    try {
+      if (typeof window !== 'undefined') {
+        if (key) localStorage.setItem('llm-api-key', key)
+        else localStorage.removeItem('llm-api-key')
+      }
+    } catch (e) {
+      // ignore
     }
-
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`
-    }
-
-    return headers
   }
 
   async analyzeCode(file: File, mode: string, features: any) {
@@ -51,7 +50,10 @@ export class ApiClient {
     formData.append('features', JSON.stringify(features))
 
     // include user-provided API key if present in localStorage
-    const storedKey = typeof window !== 'undefined' ? localStorage.getItem('llm-api-key') : null
+    let storedKey = null
+    if (typeof window !== 'undefined') {
+      storedKey = localStorage.getItem('llm-api-key')
+    }
     if (storedKey) {
       formData.append('api_key', storedKey)
     }
@@ -60,19 +62,14 @@ export class ApiClient {
       method: 'POST',
       body: formData,
     })
-
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail || 'Failed to analyze file')
     }
     return res.json()
   }
-
-  async uploadFile(file: File): Promise<string> {
-    // Simulate file upload
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    return 'File uploaded successfully'
-  }
 }
-
-export const apiClient = new ApiClient()
+// Instantiate default ApiClient with an explicit base so client bundles point to backend.
+// Use NEXT_PUBLIC_API_URL if available at build time, otherwise fall back to localhost:8000.
+const DEFAULT_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+export default new ApiClient(DEFAULT_BASE)
