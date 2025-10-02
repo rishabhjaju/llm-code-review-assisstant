@@ -6,27 +6,46 @@ import json
 import time
 from typing import Optional, Any, Tuple
 import google.genai as genai
+from google.genai import errors as genai_errors
 import logging
 
 logger = logging.getLogger(__name__)
 
-def _make_client(api_key: Optional[str] = None):
+
+class QuotaExceededError(Exception):
+    def __init__(self, message, retry_after=None, key_source: Optional[str] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+        self.key_source = key_source
+
+def _make_client(api_key: Optional[str] = None, api_key_source: Optional[str] = None):
     """
     Create a genai client. Prefer provided api_key, then env var GOOGLE_GENAI_API_KEY.
     If no key is provided, Client() will rely on default environment credentials if available.
     """
-    key = api_key or os.environ.get("GOOGLE_GENAI_API_KEY")
+    env_key = os.environ.get("GOOGLE_GENAI_API_KEY")
+    key = api_key or env_key
+    # Determine key source if not provided
     if api_key:
-        logger.info("Creating genai client with explicit api_key provided by caller (not logging key).")
-    elif os.environ.get("GOOGLE_GENAI_API_KEY"):
-        logger.info("Creating genai client using server environment GOOGLE_GENAI_API_KEY.")
+        source = api_key_source or "explicit"
+        logger.info("Creating genai client with explicit api_key provided by caller (source=%s).", source)
+    elif env_key:
+        source = api_key_source or "server_env"
+        logger.info("Creating genai client using server environment GOOGLE_GENAI_API_KEY (source=%s).", source)
     else:
-        logger.info("Creating genai client with default credentials (no explicit API key).")
+        source = api_key_source or "default_credentials"
+        logger.info("Creating genai client with default credentials (no explicit API key) (source=%s).", source)
 
-    logger.info("genai api key: %s", key)
+    # avoid logging secrets; but record the source on the client for error reporting
     if key:
-        return genai.Client(api_key=key)
-    return genai.Client()
+        client = genai.Client(api_key=key)
+    else:
+        client = genai.Client()
+    try:
+        setattr(client, "_llm_key_source", source)
+    except Exception:
+        pass
+    return client
 
 def _choose_model(client: genai.Client) -> str:
     """
@@ -59,8 +78,7 @@ def _choose_model(client: genai.Client) -> str:
                     return pref_list[0]
 
         # Deterministic ordered candidate list (no randomness)
-        candidates = [
-            "gemini-2.5", "gemini-2.5-flash",
+        candidates = ["gemini-2.5-flash",
             "gemini-1.5", "gemini-1.5-flash",
             "gemini-1.0", "text-bison@001", "text-bison-001", "text-bison"
         ]
@@ -143,14 +161,46 @@ def _call_model_with_retry(client: genai.Client, model_name: str, contents: str,
             text = getattr(resp, "text", None) or getattr(resp, "content", None) or str(resp)
             return text.strip()
         except Exception as e:
+            # Detect quota / resource-exhausted errors and fail fast so callers can fallback
             last_exc = e
+            msg = str(e)
+            is_quota = False
+            try:
+                if isinstance(e, genai_errors.ClientError):
+                    status = getattr(e, 'status_code', None)
+                    if status == 429:
+                        is_quota = True
+            except Exception:
+                pass
+            if not is_quota and ("RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower() or "exceeded" in msg.lower()):
+                is_quota = True
+
+            if is_quota:
+                # try to extract retry seconds if present
+                retry_after = None
+                m = re.search(r"retry.*?(\d+(?:\.\d+)?)s", msg, re.I)
+                if m:
+                    try:
+                        retry_after = float(m.group(1))
+                    except Exception:
+                        retry_after = None
+                # capture key source from client, if set
+                key_src = None
+                try:
+                    key_src = getattr(client, "_llm_key_source", None)
+                except Exception:
+                    key_src = None
+                logger.warning("Model call attempt %d failed due to quota/resource limits: %s; retry_after=%s; key_source=%s", attempt+1, e, retry_after, key_src)
+                # raise a specific error so analyzer can disable LLM features for this request
+                raise QuotaExceededError(msg, retry_after, key_source=key_src)
+
             logger.warning("Model call attempt %d failed: %s", attempt+1, e)
             time.sleep(delay)
     logger.exception("All model attempts failed: %s", last_exc)
     raise last_exc
 
-def get_summary(code: str, api_key: Optional[str] = None) -> str:
-    client = _make_client(api_key)
+def get_summary(code: str, api_key: Optional[str] = None, api_key_source: Optional[str] = None) -> str:
+    client = _make_client(api_key, api_key_source=api_key_source)
     try:
         model_name = _choose_model(client)
         prompt = f"""You are a concise, technical assistant. Produce a code summary (max 200 words).
@@ -170,8 +220,8 @@ Code:
         logger.exception("LLM summary call failed")
         return f"__LLM_ERROR__: {str(e)}"
 
-def get_comments(code: str, metrics: dict, api_key: Optional[str] = None) -> str:
-    client = _make_client(api_key)
+def get_comments(code: str, metrics: dict, api_key: Optional[str] = None, api_key_source: Optional[str] = None) -> str:
+    client = _make_client(api_key, api_key_source=api_key_source)
     prompt = f"""You are a code reviewer. Analyze the code and metrics and return ONLY a JSON array.
 Each item must be an object with: line (int|null), column (int|null), severity ('error'|'warning'|'info'), category (Performance|Readability|Security|Maintainability|Style|Other), message (string), suggestion (string|null).
 Do not include additional text.
@@ -192,8 +242,8 @@ Metrics: {json.dumps(metrics)}
         logger.exception("LLM comments call failed")
         return f"__LLM_ERROR__: {str(e)}"
 
-def get_tags(code: str, metrics: dict, api_key: Optional[str] = None) -> str:
-    client = _make_client(api_key)
+def get_tags(code: str, metrics: dict, api_key: Optional[str] = None, api_key_source: Optional[str] = None) -> str:
+    client = _make_client(api_key, api_key_source=api_key_source)
     prompt = f"""Identify up to 6 tags for this code sample. Return ONLY a JSON array of strings, e.g. ["Performance","Security"].
 Code:
 ```
@@ -212,8 +262,8 @@ Metrics: {json.dumps(metrics)}
         logger.exception("LLM tags call failed")
         return f"__LLM_ERROR__: {str(e)}"
 
-def get_library_docs(code: str, api_key: Optional[str] = None) -> str:
-    client = _make_client(api_key)
+def get_library_docs(code: str, api_key: Optional[str] = None, api_key_source: Optional[str] = None) -> str:
+    client = _make_client(api_key, api_key_source=api_key_source)
     prompt = f"""Extract library dependencies and produce usage snippets where applicable.
 Return ONLY a JSON object: {{ "dependencies": [{{"name":..., "version":null, "reason": "..."}}, ...], "usage_notes": ["..."] }}
 Code:

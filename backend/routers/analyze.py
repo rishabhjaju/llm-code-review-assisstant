@@ -4,6 +4,7 @@ from fastapi import APIRouter, UploadFile, Form, HTTPException, Body, Response, 
 from typing import Optional, Any
 import json
 from services.analyzer import run_analysis
+from services import gemini_client
 from utils.file_utils import validate_file_lines
 from services.exporter import build_sarif, build_export_payload
 from models.schemas import AnalyzeResponse, ExportRequestModel  # added ExportRequestModel
@@ -61,7 +62,8 @@ async def analyze_file(
     except Exception:
         pass
 
-    results = run_analysis(content, features_dict, mode, api_key=used_key)
+    # pass key_source for improved diagnostics when LLM calls fail
+    results = run_analysis(content, features_dict, mode, api_key=used_key, api_key_source=key_source)
 
     # FastAPI will validate/serialize to response_model; ensure keys exist and types align.
     # Normalize fields to match AnalyzeResponse keys (use None when missing)
@@ -83,6 +85,10 @@ async def analyze_file(
         "docs_validation_errors": results.get("docs_validation_errors"),
         "docs_error": results.get("docs_error"),
         "docs_raw": results.get("docs_raw"),
+        "llm_disabled": results.get("llm_disabled"),
+        "llm_disabled_reason": results.get("llm_disabled_reason"),
+        "llm_retry_after_seconds": results.get("llm_retry_after_seconds"),
+        "llm_error": results.get("llm_error"),
     }
 
     return normalized
@@ -91,6 +97,35 @@ async def analyze_file(
 @router.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@router.get('/llm/models')
+async def list_llm_models(request: Request, api_key: Optional[str] = None):
+    """
+    Debug endpoint: list models visible to the provided API key.
+    Provide `api_key` as query param or via Authorization: Bearer <key> / X-API-Key header.
+    """
+    used_key = api_key
+    if not used_key and request is not None:
+        auth = request.headers.get('authorization') or request.headers.get('x-api-key')
+        if auth:
+            auth = auth.strip()
+            if auth.lower().startswith('bearer '):
+                used_key = auth.split(None, 1)[1].strip()
+            else:
+                used_key = auth
+
+    try:
+        client = gemini_client._make_client(used_key)
+        models = client.models.list()
+        out = []
+        for m in models:
+            name = getattr(m, 'name', None) or getattr(m, 'model', None) or str(m)
+            out.append({'name': name})
+        return {'models': out, 'key_provided': bool(used_key)}
+    except Exception as e:
+        router_logger.exception("Failed to list models: %s", e)
+        raise HTTPException(status_code=502, detail=f"Could not list models: {e}")
 
 
 # New export endpoint
