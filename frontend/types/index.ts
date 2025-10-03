@@ -45,6 +45,11 @@ export interface FrontendAnalysis {
   comments_error?: string | null
   tags_error?: string | null
   docs_error?: string | null
+  // LLM disabled metadata (populated when backend falls back from LLM due to quota/errors)
+  llm_disabled?: boolean | null
+  llm_disabled_reason?: string | null
+  llm_retry_after_seconds?: number | null
+  llm_disabled_key_source?: string | null
   timestamp: Date
 }
 
@@ -119,4 +124,8 @@ export interface AnalyzeResponse {
   docs_validation_errors?: string[] | null
   docs_error?: string | null
   docs_raw?: string | null
+  llm_disabled?: boolean | null
+  llm_disabled_reason?: string | null
+  llm_retry_after_seconds?: number | null
+  llm_disabled_key_source?: string | null
 }

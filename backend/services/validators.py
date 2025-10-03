@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 from pydantic import ValidationError
 from models.schemas import CommentModel, SummaryModel, DocsModel
 
@@ -45,7 +45,7 @@ def validate_tags(raw: Any) -> Tuple[List[str], List[str]]:
         errors.append("tags must be an array of strings")
     return cleaned, errors
 
-def validate_summary(raw: Any) -> Tuple[dict or None, List[str]]:
+def validate_summary(raw: Any) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     errors: List[str] = []
     if raw is None:
         errors.append("summary missing")

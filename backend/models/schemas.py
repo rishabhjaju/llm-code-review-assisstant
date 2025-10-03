@@ -40,7 +40,12 @@ class CommentModel(BaseModel):
 
     @validator('message')
     def message_must_not_be_empty(cls, v):
-        s = (v or '').trim() if hasattr(v, 'strip') else str(v).strip()
+        # ensure we coerce to string and strip whitespace; use Python's strip() not .trim()
+        s = (v or '')
+        try:
+            s = s.strip()
+        except Exception:
+            s = str(v).strip()
         if not s:
             raise ValueError('message must be non-empty')
         return s
@@ -116,6 +121,12 @@ class AnalyzeResponse(BaseModel):
     docs_validation_errors: Optional[List[str]] = None
     docs_error: Optional[str] = None
     docs_raw: Optional[str] = None
+
+    # LLM disabled / quota metadata
+    llm_disabled: Optional[bool] = None
+    llm_disabled_reason: Optional[str] = None
+    llm_retry_after_seconds: Optional[float] = None
+    llm_disabled_key_source: Optional[str] = None
 
 class ExportRequestModel(BaseModel):
     filename: Optional[str] = "analysis"

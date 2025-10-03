@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import FileUpload from '@/components/FileUpload'
 import CodeEditor from '@/components/CodeEditor'
 import MetricsPanel from '@/components/MetricsPanel'
+import LLMDisabledBanner from './ui/LLMDisabledBanner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { 
@@ -344,23 +345,30 @@ export default function DashboardLayout() {
 
               {/* Metrics Panel */}
               {showMetrics && analysisResult && (
-                <MetricsPanel
-                  analysis={analysisResult}
-                  history={history}
-                  onLoadHistory={(item: any) => {
-                    // load historical analysis into UI
-                    setAnalysisResult(item)
-                    // optionally load file content if stored (not implemented)
-                  }}
-                  onCommentsUpdate={(updatedComments) => {
-                    // persist edits into local UI state
-                    setAnalysisResult((prev: any) => ({
-                      ...prev,
-                      issues: updatedComments,
-                      comments: updatedComments
-                    }))
-                  }}
-                />
+                <>
+                  <LLMDisabledBanner
+                    reason={analysisResult.llm_disabled_reason ?? undefined}
+                    keySource={analysisResult.llm_disabled_key_source ?? undefined}
+                    retryAfter={analysisResult.llm_retry_after_seconds ?? undefined}
+                  />
+                  <MetricsPanel
+                    analysis={analysisResult}
+                    history={history}
+                    onLoadHistory={(item: any) => {
+                      // load historical analysis into UI
+                      setAnalysisResult(item)
+                      // optionally load file content if stored (not implemented)
+                    }}
+                    onCommentsUpdate={(updatedComments) => {
+                      // persist edits into local UI state
+                      setAnalysisResult((prev: any) => ({
+                        ...prev,
+                        issues: updatedComments,
+                        comments: updatedComments
+                      }))
+                    }}
+                  />
+                </>
               )}
             </div>
           </div>
