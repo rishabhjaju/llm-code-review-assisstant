@@ -50,7 +50,7 @@ export class ApiClient {
     formData.append('features', JSON.stringify(features))
 
     // include user-provided API key if present in localStorage
-    let storedKey = null
+    let storedKey: string | null = null
     if (typeof window !== 'undefined') {
       storedKey = localStorage.getItem('llm-api-key')
     }

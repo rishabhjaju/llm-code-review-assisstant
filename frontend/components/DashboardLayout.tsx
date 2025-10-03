@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation'
 import FileUpload from '@/components/FileUpload'
 import CodeEditor from '@/components/CodeEditor'
 import MetricsPanel from '@/components/MetricsPanel'
+import AnalysisViews from '@/components/AnalysisViews'
+const { SummaryCard, CommentsView, MetricsView } = AnalysisViews
 import LLMDisabledBanner from './ui/LLMDisabledBanner'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { 
   Home, 
@@ -18,18 +21,24 @@ import {
   Settings,
   ArrowLeft 
 } from 'lucide-react'
-import { FileData, AnalysisResult, FrontendAnalysis } from '@/types'
+import { FileData, FrontendAnalysis } from '@/types'
+import type { AnalyzeResponse } from '@/types'
 import { getLanguageFromExtension, getFileExtension } from '@/lib/utils'
 import apiClient from '../lib/api'
+import { useToast } from '@/hooks/useToast'
+import ToastContainer from '@/components/ui/Toast'
 
 export default function DashboardLayout() {
   const [currentFile, setCurrentFile] = useState<FileData | null>(null)
-  const [analysisResult, setAnalysisResult] = useState<FrontendAnalysis | null>(null)
-  const [history, setHistory] = useState<FrontendAnalysis[]>([])
+  const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null)
+  const [history, setHistory] = useState<any[]>([])
   const [showMetrics, setShowMetrics] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const router = useRouter()
+  const [activeTab, setActiveTab] = useState<'code'|'summary'|'metrics'|'comments'|'history'>('code')
+  const [showSaveToast, setShowSaveToast] = useState(false)
+  const { toasts, add: addToast, remove: removeToast } = useToast()
 
   useEffect(() => {
     // Load API key if available
@@ -68,6 +77,54 @@ export default function DashboardLayout() {
     setShowMetrics(false)
   }
 
+  // persist analysis to server history and local history (available to callbacks)
+  const persistAnalysis = async (analysis: any) => {
+    const base = apiClient.baseUrl || ''
+    // ensure timestamp
+    const withTs = { ...analysis, timestamp: (analysis.timestamp instanceof Date) ? analysis.timestamp.toISOString() : (analysis.timestamp || new Date().toISOString()) }
+    // update local history first
+    const newHist = [analysis, ...history].slice(0, 20)
+    setHistory(newHist)
+    const serial = newHist.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
+    try {
+      localStorage.setItem('analysis-history', JSON.stringify(serial))
+    } catch (e) {
+      console.warn('could not persist local history', e)
+    }
+
+    // post to server and show toast/undo
+    try {
+      const res = await fetch(`${base}/api/v1/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withTs) })
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        addToast({ title: 'Save failed', description: body || 'Server rejected history save', variant: 'error' })
+        return
+      }
+      // success toast with undo
+      const lastId = addToast({ title: 'Saved analysis', description: 'Your analysis was saved to history', variant: 'success', undo: async () => {
+        try {
+          // remove locally
+          setHistory((prev) => prev.filter((p) => p !== analysis))
+          const after = (history || []).filter((p) => p !== analysis)
+          const serialAfter = after.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
+          localStorage.setItem('analysis-history', JSON.stringify(serialAfter))
+          // attempt server delete - best-effort: call DELETE /api/v1/history with body { timestamp }
+          try {
+            await fetch(`${base}/api/v1/history`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timestamp: withTs.timestamp }) })
+          } catch (e) {
+            console.warn('undo server delete failed', e)
+          }
+        } catch (e) {
+          console.warn('undo failed', e)
+        }
+      }})
+      // auto-remove handled by hook TTL
+    } catch (e) {
+      console.warn('could not post history to server', e)
+      addToast({ title: 'Save failed', description: 'Could not reach server to save history', variant: 'error' })
+    }
+  }
+
   const handleCodeChange = (value: string) => {
     if (currentFile) {
       setCurrentFile({
@@ -95,49 +152,50 @@ export default function DashboardLayout() {
       const features = { summary: true, review: true, metrics: true, tags: true, docs: true }
       const res = await apiClient.analyzeCode(fileToSend, useMode, features)
       // Normalize response fields
-      const metrics = res.metrics || {}
-      // ensure structured summary object
-      let summaryObj = null
-      if (res.summary) {
-        if (typeof res.summary === 'string') {
-          summaryObj = { summary: res.summary, key_points: [] }
-        } else if (typeof res.summary === 'object') {
-          summaryObj = { summary: res.summary.summary ?? JSON.stringify(res.summary), key_points: res.summary.key_points ?? [] }
-        } else {
-          summaryObj = null
-        }
+      // Use the raw API response shape (AnalyzeResponse) so MetricsPanel receives comments/tags/docs/metrics directly
+      const analysis: AnalyzeResponse = {
+        summary: res.summary ?? null,
+        summary_validation_errors: res.summary_validation_errors ?? null,
+        summary_error: res.summary_error ?? null,
+        metrics: res.metrics ?? null,
+        metrics_error: res.metrics_error ?? null,
+        comments: res.comments ?? null,
+        comments_validation_errors: res.comments_validation_errors ?? null,
+        comments_error: res.comments_error ?? null,
+        comments_raw: res.comments_raw ?? null,
+  tags: res.tags ?? null,
+  tags_validation_errors: res.tags_validation_errors ?? null,
+  tags_error: res.tags_error ?? null,
+  docs: res.docs ?? null,
+  docs_validation_errors: res.docs_validation_errors ?? null,
+  docs_error: res.docs_error ?? null,
+        llm_disabled: res.llm_disabled ?? null,
+        llm_disabled_reason: res.llm_disabled_reason ?? null,
+        llm_retry_after_seconds: res.llm_retry_after_seconds ?? null,
+        llm_disabled_key_source: res.llm_disabled_key_source ?? null,
       }
-
-      const analysis: FrontendAnalysis = {
-        metrics,
-        issues: res.comments ?? res.issues ?? [],
-        suggestions: res.suggestions ?? [],
-        summary: summaryObj,
-        tags: res.tags ?? [],
-        docs: res.docs ?? [],
-        summary_error: res.summary_error,
-        comments_error: res.comments_error,
-        tags_error: res.tags_error,
-        docs_error: res.docs_error,
-        timestamp: new Date(),
-      }
-      setAnalysisResult(analysis)
+      // attach timestamp for UI/history
+      const analysisWithTs = { ...analysis, timestamp: new Date() }
+      // cast to any because AnalyzeResponse doesn't declare timestamp
+      setAnalysisResult(analysisWithTs as any)
       setShowMetrics(true)
+  // switch to summary view when analysis completes
+  setActiveTab('summary')
 
       // persist to history (keep last 20)
       try {
-  const newHist = [analysis, ...history].slice(0, 20)
-  setHistory(newHist)
-  // serialize dates
-  const serial = newHist.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
-  localStorage.setItem('analysis-history', JSON.stringify(serial))
-  // attempt to post to server history
-  try {
-    const base = apiClient.baseUrl || ''
-    await fetch(`${base}/api/v1/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(analysis) })
-  } catch (e) {
-    console.warn('could not post history to server', e)
-  }
+        const newHist = [analysisWithTs, ...history].slice(0, 20)
+        setHistory(newHist)
+        // serialize dates
+        const serial = newHist.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
+        localStorage.setItem('analysis-history', JSON.stringify(serial))
+        // attempt to post to server history
+        try {
+          const base = apiClient.baseUrl || ''
+          await fetch(`${base}/api/v1/history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(analysis) })
+        } catch (e) {
+          console.warn('could not post history to server', e)
+        }
       } catch (e) {
         console.warn('could not save history', e)
       }
@@ -190,10 +248,10 @@ export default function DashboardLayout() {
       const payload = {
         filename: currentFile?.name?.replace(/\.[^.]+$/, '') ?? 'analysis',
         format,
-        comments: analysisResult.issues ?? [],
-        metrics: analysisResult.metrics ?? {},
-        tags: analysisResult.tags ?? [],
-        summary: analysisResult.summary ?? null
+        comments: analysisResult?.comments ?? [],
+        metrics: analysisResult?.metrics ?? {},
+        tags: analysisResult?.tags ?? [],
+        summary: analysisResult?.summary ?? null
       }
       const base = apiClient.baseUrl || ''
       const res = await fetch(`${base}/api/v1/export`, {
@@ -260,6 +318,11 @@ export default function DashboardLayout() {
                   const data = await r.json()
                   const items = (data.items || []).map((h: any) => ({ ...h, timestamp: h.timestamp ? new Date(h.timestamp) : new Date() }))
                   setHistory(items)
+                  // if history contains at least one item, load the most recent into the UI
+                  if (items.length > 0) {
+                    setAnalysisResult(items[0])
+                    setShowMetrics(true)
+                  }
                 } catch (e) {
                   console.error('fetch history', e)
                 }
@@ -272,6 +335,21 @@ export default function DashboardLayout() {
                   if (r.ok) setHistory([])
                 } catch (e) { console.error('clear history', e) }
               }} className="px-3 py-1 bg-red-100 rounded">Clear Server History</button>
+
+              <button onClick={async () => {
+                try {
+                  // load the static example JSON from public/ for quick local testing
+                  const r = await fetch('/example_analysis.json')
+                  if (!r.ok) return
+                  const example = await r.json()
+                  // ensure timestamp exists for history UI
+                  example.timestamp = example.timestamp ? new Date(example.timestamp) : new Date()
+                  setAnalysisResult(example)
+                  setShowMetrics(true)
+                } catch (e) {
+                  console.error('load example analysis', e)
+                }
+              }} className="px-3 py-1 bg-green-100 rounded">Load Example</button>
             </div>
           </div>
         </div>
@@ -326,50 +404,101 @@ export default function DashboardLayout() {
           {/* Main Content */}
           <div className="lg:col-span-9">
             <div className="grid grid-cols-1 gap-6">
-              {/* Code Editor */}
+              {/* Tab bar */}
               <Card className="overflow-hidden">
-                <div className="border-b border-gray-200 px-6 py-3">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Settings className="h-5 w-5" />
-                    {currentFile ? currentFile.name : 'No file selected'}
-                  </h2>
-                </div>
-                <div className="h-[600px]">
-                  <CodeEditor 
-                    value={currentFile?.content || ''} 
-                    onChange={handleCodeChange}
-                    language={currentFile?.language || 'javascript'}
-                  />
-                </div>
-              </Card>
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+                  <div className="border-b border-gray-200 px-6 py-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold flex items-center gap-2">
+                        <Settings className="h-5 w-5" />
+                        {currentFile ? currentFile.name : 'No file selected'}
+                      </h2>
+                      <div className="hidden sm:flex items-center gap-2">
+                        <TabsList>
+                          <TabsTrigger value="code">Code Editor</TabsTrigger>
+                          <TabsTrigger value="summary">Summary</TabsTrigger>
+                          <TabsTrigger value="metrics">Metrics</TabsTrigger>
+                          <TabsTrigger value="comments">Comments {analysisResult?.comments?.length ? <span className="ml-1 text-xs px-2 py-0.5 bg-gray-100 rounded">{analysisResult.comments.length}</span> : null}</TabsTrigger>
+                          <TabsTrigger value="history">History</TabsTrigger>
+                        </TabsList>
+                      </div>
+                      <div className="sm:hidden">
+                        <select value={activeTab} onChange={(e) => setActiveTab(e.target.value as any)} className="border rounded px-2 py-1 text-sm">
+                          <option value="code">Code Editor</option>
+                          <option value="summary">Summary</option>
+                          <option value="metrics">Metrics</option>
+                          <option value="comments">Comments</option>
+                          <option value="history">History</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Metrics Panel */}
-              {showMetrics && analysisResult && (
-                <>
-                  <LLMDisabledBanner
-                    reason={analysisResult.llm_disabled_reason ?? undefined}
-                    keySource={analysisResult.llm_disabled_key_source ?? undefined}
-                    retryAfter={analysisResult.llm_retry_after_seconds ?? undefined}
-                  />
-                  <MetricsPanel
-                    analysis={analysisResult}
-                    history={history}
-                    onLoadHistory={(item: any) => {
-                      // load historical analysis into UI
-                      setAnalysisResult(item)
-                      // optionally load file content if stored (not implemented)
-                    }}
-                    onCommentsUpdate={(updatedComments) => {
-                      // persist edits into local UI state
-                      setAnalysisResult((prev: any) => ({
-                        ...prev,
-                        issues: updatedComments,
-                        comments: updatedComments
-                      }))
-                    }}
-                  />
-                </>
-              )}
+                  <div className="p-4">
+                    {/* Toasts */}
+                    <ToastContainer toasts={toasts} onRemove={(id: string) => removeToast(id)} />
+
+                    {activeTab === 'code' && (
+                      <TabsContent value="code">
+                        <div className="h-[600px]">
+                          <CodeEditor 
+                            value={currentFile?.content || ''} 
+                            onChange={handleCodeChange}
+                            language={currentFile?.language || 'javascript'}
+                          />
+                        </div>
+                      </TabsContent>
+                    )}
+
+                    {activeTab === 'summary' && (
+                      <TabsContent value="summary">
+                        {analysisResult ? (
+                          <SummaryCard analysis={analysisResult} />
+                        ) : (
+                          <div className="text-sm text-gray-500">Run analysis to see summary</div>
+                        )}
+                      </TabsContent>
+                    )}
+
+                    {activeTab === 'metrics' && (
+                      <TabsContent value="metrics">
+                        {analysisResult ? (
+                          <MetricsView analysis={analysisResult} history={history} onLoadHistory={(item: any) => { setAnalysisResult(item); setShowMetrics(true) }} />
+                        ) : (
+                          <div className="text-sm text-gray-500">Run analysis to see metrics</div>
+                        )}
+                      </TabsContent>
+                    )}
+
+                    {activeTab === 'comments' && (
+                      <TabsContent value="comments">
+                        {analysisResult ? (
+                          <CommentsView analysis={analysisResult} onCommentsUpdate={(updatedComments) => { setAnalysisResult((prev: any) => ({ ...prev, issues: updatedComments, comments: updatedComments })); persistAnalysis({ ...analysisResult, comments: updatedComments }) }} />
+                        ) : (
+                          <div className="text-sm text-gray-500">Run analysis to see comments</div>
+                        )}
+                      </TabsContent>
+                    )}
+
+                    {activeTab === 'history' && (
+                      <TabsContent value="history">
+                        <h3 className="text-lg font-semibold">History</h3>
+                        <div className="mt-3 space-y-2">
+                          {(history || []).length === 0 ? <div className="text-sm text-gray-500">No history</div> :
+                            (history || []).map((h, i) => (
+                              <div key={i} className="flex items-center justify-between p-2 border rounded bg-white">
+                                <div className="text-sm">{new Date(h.timestamp).toLocaleString()}</div>
+                                <div className="flex gap-2">
+                                  <button onClick={() => { setAnalysisResult(h); setActiveTab('summary'); setShowMetrics(true) }} className="px-2 py-1 bg-gray-100 rounded text-sm">Load</button>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </TabsContent>
+                    )}
+                  </div>
+                </Tabs>
+              </Card>
             </div>
           </div>
         </div>
