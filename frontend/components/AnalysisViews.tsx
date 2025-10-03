@@ -152,19 +152,6 @@
              <div key={i} className="p-3 bg-white border rounded">{d}</div>
            ))}
          </div>
-         {/* <div className="mt-6">
-           <h4 className="text-lg font-semibold">History</h4>
-           <div className="mt-2 space-y-2">
-             {(history || []).map((h, i) => (
-               <div key={i} className="flex items-center justify-between p-2 border rounded bg-white">
-                 <div className="text-sm">{new Date(h.timestamp).toLocaleString()}</div>
-                 <div>
-                   <button onClick={() => onLoadHistory && onLoadHistory(h)} className="px-2 py-1 bg-gray-100 rounded text-sm">Load</button>
-                 </div>
-               </div>
-             ))}
-           </div>
-         </div> */}
        </div>
      </div>
    )
