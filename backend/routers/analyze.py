@@ -82,6 +82,7 @@ async def analyze_file(
         "tags_error": results.get("tags_error"),
         "tags_raw": results.get("tags_raw"),
         "docs": results.get("docs"),
+    "docs_links": results.get("docs_links"),
         "docs_validation_errors": results.get("docs_validation_errors"),
         "docs_error": results.get("docs_error"),
         "docs_raw": results.get("docs_raw"),

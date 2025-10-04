@@ -118,6 +118,7 @@ class AnalyzeResponse(BaseModel):
     tags_raw: Optional[str] = None
 
     docs: Optional[List[str]] = None
+    docs_links: Optional[List[Dict[str, Any]]] = None
     docs_validation_errors: Optional[List[str]] = None
     docs_error: Optional[str] = None
     docs_raw: Optional[str] = None

@@ -121,6 +121,7 @@ export interface AnalyzeResponse {
   tags_validation_errors?: string[] | null
   tags_error?: string | null
   docs?: string[] | null
+  docs_links?: { name: string; url?: string }[] | null
   docs_validation_errors?: string[] | null
   docs_error?: string | null
   docs_raw?: string | null

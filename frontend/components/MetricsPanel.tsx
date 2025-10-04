@@ -219,7 +219,7 @@ export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLo
         <div className="space-y-4">
           <div>
             <h4 className="text-lg font-semibold">Metrics</h4>
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="mt-3 grid gap-3">
               {metricTiles.map((m) => {
                 const Icon = m.icon
                 return (
@@ -237,7 +237,7 @@ export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLo
             </div>
           </div>
 
-          <div>
+          {/* <div>
             <h4 className="text-lg font-semibold">Library Docs / Notes</h4>
             <div className="mt-2 text-sm text-gray-700">
               {(analysis.docs || []).length === 0 ? (
@@ -255,7 +255,7 @@ export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLo
                 </div>
               )}
             </div>
-          </div>
+          </div> */}
 
           <div>
             <h4 className="text-lg font-semibold">Metric Trends</h4>
@@ -292,7 +292,7 @@ export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLo
       )}
 
       {/* Render full two-column view */}
-      {view === 'full' && (
+      {/* {view === 'full' && (
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
             <h4 className="text-lg font-semibold">Review Comments</h4>
@@ -416,7 +416,7 @@ export default function MetricsPanel({ analysis, onCommentsUpdate, history, onLo
             </div>
           </div>
         </div>
-      )}
+      )} */}
     </div>
   )
 }

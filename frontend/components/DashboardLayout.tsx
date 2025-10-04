@@ -6,7 +6,7 @@ import FileUpload from '@/components/FileUpload'
 import CodeEditor from '@/components/CodeEditor'
 import MetricsPanel from '@/components/MetricsPanel'
 import AnalysisViews from '@/components/AnalysisViews'
-const { SummaryCard, CommentsView, MetricsView } = AnalysisViews
+const { SummaryCard, CommentsView, MetricsView, DocsView } = AnalysisViews
 import LLMDisabledBanner from './ui/LLMDisabledBanner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -36,7 +36,7 @@ export default function DashboardLayout() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'code'|'summary'|'metrics'|'comments'|'history'>('code')
+  const [activeTab, setActiveTab] = useState<'code'|'summary'|'metrics'|'comments'|'docs'|'history'>('code')
   const [showSaveToast, setShowSaveToast] = useState(false)
   const { toasts, add: addToast, remove: removeToast } = useToast()
 
@@ -310,7 +310,7 @@ export default function DashboardLayout() {
               Save File
             </Button>
             <div className="flex items-center gap-2">
-              <button onClick={async () => {
+              {/* <button onClick={async () => {
                 try {
                   const base = apiClient.baseUrl || ''
                   const r = await fetch(`${base}/api/v1/history`)
@@ -326,7 +326,7 @@ export default function DashboardLayout() {
                 } catch (e) {
                   console.error('fetch history', e)
                 }
-              }} className="px-3 py-1 bg-gray-200 rounded">Load Server History</button>
+              }} className="px-3 py-1 bg-gray-200 rounded">Load Server History</button> */}
 
               <button onClick={async () => {
                 try {
@@ -336,20 +336,6 @@ export default function DashboardLayout() {
                 } catch (e) { console.error('clear history', e) }
               }} className="px-3 py-1 bg-red-100 rounded">Clear Server History</button>
 
-              <button onClick={async () => {
-                try {
-                  // load the static example JSON from public/ for quick local testing
-                  const r = await fetch('/example_analysis.json')
-                  if (!r.ok) return
-                  const example = await r.json()
-                  // ensure timestamp exists for history UI
-                  example.timestamp = example.timestamp ? new Date(example.timestamp) : new Date()
-                  setAnalysisResult(example)
-                  setShowMetrics(true)
-                } catch (e) {
-                  console.error('load example analysis', e)
-                }
-              }} className="px-3 py-1 bg-green-100 rounded">Load Example</button>
             </div>
           </div>
         </div>
@@ -359,15 +345,16 @@ export default function DashboardLayout() {
         <div className="grid lg:grid-cols-12 gap-6">
           {/* Sidebar */}
           <div className="lg:col-span-3">
-            <Card className="p-6 mb-6">
+            {!currentFile ?  <Card className="p-6 mb-6">
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Upload className="h-5 w-5" />
                 File Upload
               </h2>
               <FileUpload onFileLoad={handleFileLoad} />
-            </Card>
+            </Card> 
+            : <></>}
 
-            {currentFile && (
+            {currentFile && (<>
               <Card className="p-6">
                 <h3 className="text-md font-semibold mb-4 flex items-center gap-2">
                   <FileText className="h-5 w-5" />
@@ -398,7 +385,17 @@ export default function DashboardLayout() {
                   {isAnalyzing ? 'Analyzing...' : 'Analyze Code'}
                 </Button>
               </Card>
+
+              <Card className="p-6 mt-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                {/* <Upload className="h-5 w-5" /> */}
+                Change File
+              </h2>
+              <FileUpload onFileLoad={handleFileLoad} />
+            </Card></>
             )}
+
+
           </div>
 
           {/* Main Content */}
@@ -418,7 +415,8 @@ export default function DashboardLayout() {
                           <TabsTrigger value="code">Code Editor</TabsTrigger>
                           <TabsTrigger value="summary">Summary</TabsTrigger>
                           <TabsTrigger value="metrics">Metrics</TabsTrigger>
-                          <TabsTrigger value="comments">Comments {analysisResult?.comments?.length ? <span className="ml-1 text-xs px-2 py-0.5 bg-gray-100 rounded">{analysisResult.comments.length}</span> : null}</TabsTrigger>
+                          <TabsTrigger value="comments">Issues {analysisResult?.comments?.length ? <span className={`ml-1 text-xs px-2 py-0.5 ${activeTab == "comments" ?"bg-black": "bg-gray-100"} rounded`}>{analysisResult.comments.length}</span> : null}</TabsTrigger>
+                          <TabsTrigger value="docs">Docs</TabsTrigger>
                           <TabsTrigger value="history">History</TabsTrigger>
                         </TabsList>
                       </div>
@@ -427,7 +425,8 @@ export default function DashboardLayout() {
                           <option value="code">Code Editor</option>
                           <option value="summary">Summary</option>
                           <option value="metrics">Metrics</option>
-                          <option value="comments">Comments</option>
+                          <option value="comments">Issues</option>
+                          <option value="docs">Docs</option>
                           <option value="history">History</option>
                         </select>
                       </div>
@@ -466,6 +465,16 @@ export default function DashboardLayout() {
                           <MetricsView analysis={analysisResult} history={history} onLoadHistory={(item: any) => { setAnalysisResult(item); setShowMetrics(true) }} />
                         ) : (
                           <div className="text-sm text-gray-500">Run analysis to see metrics</div>
+                        )}
+                      </TabsContent>
+                    )}
+
+                    {activeTab === 'docs' && (
+                      <TabsContent value="docs">
+                        {analysisResult ? (
+                          <DocsView analysis={analysisResult} history={history} onLoadHistory={(item: any) => { setAnalysisResult(item); setShowMetrics(true) }} />
+                        ) : (
+                          <div className="text-sm text-gray-500">Run analysis to see library docs</div>
                         )}
                       </TabsContent>
                     )}
