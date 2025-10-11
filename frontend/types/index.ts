@@ -107,6 +107,16 @@ export interface Metrics {
   class_count?: number
 }
 
+export interface DocLink {
+  id?: string
+  name: string
+  url?: string | null
+  canonical_url?: string | null
+  snippet?: string | null
+  source?: string | null
+  confidence?: number | null
+}
+
 export interface AnalyzeResponse {
   summary?: Summary | null
   summary_validation_errors?: string[] | null
@@ -121,7 +131,7 @@ export interface AnalyzeResponse {
   tags_validation_errors?: string[] | null
   tags_error?: string | null
   docs?: string[] | null
-  docs_links?: { name: string; url?: string }[] | null
+  docs_links?: DocLink[] | null
   docs_validation_errors?: string[] | null
   docs_error?: string | null
   docs_raw?: string | null

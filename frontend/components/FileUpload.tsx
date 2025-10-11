@@ -9,6 +9,7 @@ interface FileUploadProps {
   onFileLoad: (content: string, name: string, size: number) => void
 }
 
+//using
 export default function FileUpload({ onFileLoad }: FileUploadProps) {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')

@@ -1,9 +1,10 @@
  'use client'
 
  import React, { useState } from 'react'
- import { Button } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
  import MiniChart from './MiniChart'
  import { BarChart3 } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
  import type { AnalyzeResponse, Comment as CommentType } from '../types'
  import { Modal } from '@/components/ui/modal'
 
@@ -24,6 +25,7 @@ function commentCardClass(s: string | null | undefined) {
   }
 }
 
+//using
  export function SummaryCard({ analysis }: { analysis: AnalyzeResponse | null }) {
    if (!analysis) return null
    return (
@@ -41,12 +43,15 @@ function commentCardClass(s: string | null | undefined) {
                </div>
              )}
            </div>
-           <div className="text-right">
-             {analysis.llm_disabled ? (
-               <div className="text-xs text-red-600">LLM features disabled ({analysis.llm_disabled_key_source ?? 'unknown'})</div>
-             ) : (
-               <div className="text-xs text-green-600">LLM features enabled</div>
-             )}
+           <div className="text-right flex flex-col items-end gap-2">
+             <div>
+               {analysis.llm_disabled ? (
+                 <div className="text-xs text-red-600">LLM features disabled ({analysis.llm_disabled_key_source ?? 'unknown'})</div>
+               ) : (
+                 <div className="text-xs text-green-600">LLM features enabled</div>
+               )}
+             </div>
+            {/* Export button moved to the navbar for accessibility */}
            </div>
          </div>
        </div>
@@ -126,6 +131,7 @@ function commentCardClass(s: string | null | undefined) {
    )
  }
 
+ //using
 export function MetricsView({ analysis, history, onLoadHistory }: { analysis: AnalyzeResponse | null, history?: any[], onLoadHistory?: (item: any) => void }) {
    if (!analysis) return null
   const METRIC_DEFS = [
@@ -192,11 +198,13 @@ export function MetricsView({ analysis, history, onLoadHistory }: { analysis: An
   )
  }
 
+ //using
 export function DocsView({ analysis, history, onLoadHistory }: { analysis: AnalyzeResponse | null, history?: any[], onLoadHistory?: (item: any) => void }) {
   if (!analysis) return null
   const links = (analysis.docs_links || [])
   const rawDocs = (analysis.docs || [])
   const [selected, setSelected] = React.useState<any | null>(null)
+  const selectedOpenUrl = selected ? (selected.canonical_url || selected.url || `https://www.google.com/search?q=${encodeURIComponent(selected?.name ?? '')}`) : null
 
   const findRelated = (name: string) => {
     const lower = (name || '').toLowerCase()
@@ -223,22 +231,33 @@ export function DocsView({ analysis, history, onLoadHistory }: { analysis: Analy
       )}
 
       <div className="space-y-3">
-        {links.map((l: any, i: number) => (
-          <div key={i} className="p-3 bg-white border rounded shadow-sm flex items-center justify-between">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-sm font-semibold text-gray-700">{(l.name || '').slice(0,2).toUpperCase()}</div>
-              <div>
-                <div className="text-sm font-medium text-gray-900">{l.name}</div>
-                <div className="text-xs text-gray-500 truncate w-64">{l.url ?? 'No direct URL available'}</div>
+        {links.map((l: any, i: number) => {
+          const openUrl = l.canonical_url || l.url || `https://www.google.com/search?q=${encodeURIComponent(l.name)}`
+          return (
+            <div key={i} className="p-3 bg-white border rounded shadow-sm flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-sm font-semibold text-gray-700">{(l.name || '').slice(0,2).toUpperCase()}</div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{l.name}</div>
+                  <div className="text-xs text-gray-500 truncate w-64">{(l.canonical_url || l.url) ?? 'No direct URL available'}</div>
+                  <div className="mt-1 text-xs flex gap-2">
+                    <span className="px-2 py-0.5 text-xs bg-gray-100 rounded">{l.source ?? 'unknown'}</span>
+                    {typeof l.confidence === 'number' && (
+                      <span className="px-2 py-0.5 text-xs bg-gray-50 rounded text-gray-600">{Math.round((l.confidence || 0) * 100)}%</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a target="_blank" rel="noopener noreferrer" href={`https://www.google.com/search?q=${encodeURIComponent(l.name)}`} className="px-3 py-1 bg-gray-100 rounded text-sm">Search</a>
+                <a target="_blank" rel="noopener noreferrer" href={openUrl} className={`inline-flex items-center gap-2 px-3 py-1 rounded text-sm ${openUrl ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                  More details <ExternalLink className="w-4 h-4" />
+                </a>
+                <button onClick={() => setSelected(l)} className="px-3 py-1 bg-white border rounded text-sm">Details</button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <a target="_blank" rel="noreferrer" href={`https://www.google.com/search?q=${encodeURIComponent(l.name)}`} className="px-3 py-1 bg-gray-100 rounded text-sm">Search</a>
-              <a target="_blank" rel="noreferrer" href={l.url ?? `https://www.google.com/search?q=${encodeURIComponent(l.name)}`} className={`px-3 py-1 rounded text-sm ${l.url ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>More details</a>
-              <button onClick={() => setSelected(l)} className="px-3 py-1 bg-white border rounded text-sm">Details</button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
 
         {rawDocs.map((d: any, i: number) => (
           <div key={`raw-${i}`} className="p-3 bg-white border rounded">
@@ -256,8 +275,8 @@ export function DocsView({ analysis, history, onLoadHistory }: { analysis: Analy
             </div>
             <div>
               <div className="text-sm text-gray-500">URL</div>
-              {selected.url ? (
-                <a target="_blank" rel="noreferrer" href={selected.url} className="text-sm text-blue-600 truncate block w-full">{selected.url}</a>
+              {selectedOpenUrl ? (
+                <a target="_blank" rel="noopener noreferrer" href={selectedOpenUrl} className="text-sm text-blue-600 truncate block w-full">{selectedOpenUrl}</a>
               ) : (
                 <div className="text-sm text-gray-500">No direct URL available</div>
               )}
@@ -280,8 +299,8 @@ export function DocsView({ analysis, history, onLoadHistory }: { analysis: Analy
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <a target="_blank" rel="noreferrer" href={`https://www.google.com/search?q=${encodeURIComponent(selected?.name ?? '')}`} className="px-3 py-2 bg-gray-100 rounded text-sm">Search</a>
-          <a target="_blank" rel="noreferrer" href={selected?.url ?? `https://www.google.com/search?q=${encodeURIComponent(selected?.name ?? '')}`} className={`px-3 py-2 rounded text-sm ${selected?.url ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Open docs</a>
+          <a target="_blank" rel="noopener noreferrer" href={`https://www.google.com/search?q=${encodeURIComponent(selected?.name ?? '')}`} className="px-3 py-2 bg-gray-100 rounded text-sm">Search</a>
+          <a target="_blank" rel="noopener noreferrer" href={selectedOpenUrl ?? `https://www.google.com/search?q=${encodeURIComponent(selected?.name ?? '')}`} className={`px-3 py-2 rounded text-sm ${selectedOpenUrl ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>Open docs</a>
           <button onClick={() => setSelected(null)} className="px-3 py-2 bg-white border rounded text-sm">Close</button>
         </div>
       </Modal>

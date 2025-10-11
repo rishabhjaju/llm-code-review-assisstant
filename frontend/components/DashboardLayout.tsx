@@ -4,15 +4,12 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import FileUpload from '@/components/FileUpload'
 import CodeEditor from '@/components/CodeEditor'
-import MetricsPanel from '@/components/MetricsPanel'
 import AnalysisViews from '@/components/AnalysisViews'
 const { SummaryCard, CommentsView, MetricsView, DocsView } = AnalysisViews
-import LLMDisabledBanner from './ui/LLMDisabledBanner'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { 
-  Home, 
   Upload, 
   BarChart3, 
   Play, 
@@ -21,7 +18,7 @@ import {
   Settings,
   ArrowLeft 
 } from 'lucide-react'
-import { FileData, FrontendAnalysis } from '@/types'
+import { FileData } from '@/types'
 import type { AnalyzeResponse } from '@/types'
 import { getLanguageFromExtension, getFileExtension } from '@/lib/utils'
 import apiClient from '../lib/api'
@@ -35,9 +32,9 @@ export default function DashboardLayout() {
   const [showMetrics, setShowMetrics] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'code'|'summary'|'metrics'|'comments'|'docs'|'history'>('code')
-  const [showSaveToast, setShowSaveToast] = useState(false)
   const { toasts, add: addToast, remove: removeToast } = useToast()
 
   useEffect(() => {
@@ -101,23 +98,6 @@ export default function DashboardLayout() {
         return
       }
       // success toast with undo
-      const lastId = addToast({ title: 'Saved analysis', description: 'Your analysis was saved to history', variant: 'success', undo: async () => {
-        try {
-          // remove locally
-          setHistory((prev) => prev.filter((p) => p !== analysis))
-          const after = (history || []).filter((p) => p !== analysis)
-          const serialAfter = after.map((h: any) => ({ ...h, timestamp: (h.timestamp instanceof Date) ? h.timestamp.toISOString() : h.timestamp }))
-          localStorage.setItem('analysis-history', JSON.stringify(serialAfter))
-          // attempt server delete - best-effort: call DELETE /api/v1/history with body { timestamp }
-          try {
-            await fetch(`${base}/api/v1/history`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timestamp: withTs.timestamp }) })
-          } catch (e) {
-            console.warn('undo server delete failed', e)
-          }
-        } catch (e) {
-          console.warn('undo failed', e)
-        }
-      }})
       // auto-remove handled by hook TTL
     } catch (e) {
       console.warn('could not post history to server', e)
@@ -163,12 +143,12 @@ export default function DashboardLayout() {
         comments_validation_errors: res.comments_validation_errors ?? null,
         comments_error: res.comments_error ?? null,
         comments_raw: res.comments_raw ?? null,
-  tags: res.tags ?? null,
-  tags_validation_errors: res.tags_validation_errors ?? null,
-  tags_error: res.tags_error ?? null,
-  docs: res.docs ?? null,
-  docs_validation_errors: res.docs_validation_errors ?? null,
-  docs_error: res.docs_error ?? null,
+        tags: res.tags ?? null,
+        tags_validation_errors: res.tags_validation_errors ?? null,
+        tags_error: res.tags_error ?? null,
+        docs: res.docs ?? null,
+        docs_validation_errors: res.docs_validation_errors ?? null,
+        docs_error: res.docs_error ?? null,
         llm_disabled: res.llm_disabled ?? null,
         llm_disabled_reason: res.llm_disabled_reason ?? null,
         llm_retry_after_seconds: res.llm_retry_after_seconds ?? null,
@@ -179,8 +159,8 @@ export default function DashboardLayout() {
       // cast to any because AnalyzeResponse doesn't declare timestamp
       setAnalysisResult(analysisWithTs as any)
       setShowMetrics(true)
-  // switch to summary view when analysis completes
-  setActiveTab('summary')
+      // switch to summary view when analysis completes
+      setActiveTab('summary')
 
       // persist to history (keep last 20)
       try {
@@ -225,50 +205,7 @@ export default function DashboardLayout() {
     }, 500)
   }
 
-  const downloadBlob = async (res: Response, defaultName: string) => {
-    const blob = await res.blob()
-    // attempt to get filename from Content-Disposition
-    const cd = res.headers.get('Content-Disposition') || ''
-    let filename = defaultName
-    const m = cd.match(/filename="?([^";]+)"?/)
-    if (m && m[1]) filename = m[1]
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    window.URL.revokeObjectURL(url)
-  }
 
-  const handleExport = async (format: 'json' | 'sarif') => {
-    if (!analysisResult) return
-    try {
-      const payload = {
-        filename: currentFile?.name?.replace(/\.[^.]+$/, '') ?? 'analysis',
-        format,
-        comments: analysisResult?.comments ?? [],
-        metrics: analysisResult?.metrics ?? {},
-        tags: analysisResult?.tags ?? [],
-        summary: analysisResult?.summary ?? null
-      }
-      const base = apiClient.baseUrl || ''
-      const res = await fetch(`${base}/api/v1/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        console.error('Export failed', body)
-        return
-      }
-      await downloadBlob(res, `${payload.filename}.${format === 'sarif' ? 'sarif.json' : 'json'}`)
-    } catch (err) {
-      console.error('Export error', err)
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -309,25 +246,46 @@ export default function DashboardLayout() {
               <Save className="h-4 w-4 mr-2" />
               Save File
             </Button>
-            <div className="flex items-center gap-2">
-              {/* <button onClick={async () => {
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (!analysisResult) return
+                setIsExporting(true)
                 try {
                   const base = apiClient.baseUrl || ''
-                  const r = await fetch(`${base}/api/v1/history`)
-                  if (!r.ok) return
-                  const data = await r.json()
-                  const items = (data.items || []).map((h: any) => ({ ...h, timestamp: h.timestamp ? new Date(h.timestamp) : new Date() }))
-                  setHistory(items)
-                  // if history contains at least one item, load the most recent into the UI
-                  if (items.length > 0) {
-                    setAnalysisResult(items[0])
-                    setShowMetrics(true)
-                  }
+                  // ensure any Date -> ISO
+                  const serial = { ...analysisResult, timestamp: (analysisResult as any).timestamp instanceof Date ? (analysisResult as any).timestamp.toISOString() : (analysisResult as any).timestamp }
+                  const res = await fetch(`${base}/api/v1/export`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(serial)
+                  })
+                  if (!res.ok) throw new Error('Export failed')
+                  const blob = await res.blob()
+                  const url = window.URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  const name = (currentFile && currentFile.name) ? `${currentFile.name.replace(/\.[^.]+$/,'')}_code_review.pdf` : 'code_review_report.pdf'
+                  a.download = name
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  window.URL.revokeObjectURL(url)
                 } catch (e) {
-                  console.error('fetch history', e)
+                  console.error('Export failed', e)
+                  addToast({ title: 'Export failed', description: (e as any)?.message || 'Could not download PDF', variant: 'error' })
+                } finally {
+                  setIsExporting(false)
                 }
-              }} className="px-3 py-1 bg-gray-200 rounded">Load Server History</button> */}
-
+              }}
+              disabled={!analysisResult}
+              loading={isExporting}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Download report (PDF)
+            </Button>
+            <div className="flex items-center gap-2">
               <button onClick={async () => {
                 try {
                   const base = apiClient.baseUrl || ''

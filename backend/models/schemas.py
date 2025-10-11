@@ -129,14 +129,6 @@ class AnalyzeResponse(BaseModel):
     llm_retry_after_seconds: Optional[float] = None
     llm_disabled_key_source: Optional[str] = None
 
-class ExportRequestModel(BaseModel):
-    filename: Optional[str] = "analysis"
-    format: Literal["json", "sarif"] = "sarif"
-    comments: Optional[List[Dict[str, Any]]] = []
-    metrics: Optional[Dict[str, Any]] = None
-    tags: Optional[List[str]] = []
-    summary: Optional[Any] = None
-
 # helper typing aliases
 CommentList = List[CommentModel]
 Summary = SummaryModel

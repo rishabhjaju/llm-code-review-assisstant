@@ -75,7 +75,7 @@ llm-code-review-nextjs/
 │   ├── DashboardLayout.tsx # Dashboard layout
 │   ├── FileUpload.tsx     # File upload component
 │   ├── CodeEditor.tsx     # Monaco editor wrapper
-│   └── MetricsPanel.tsx   # Analysis results panel
+│   └── (metrics view moved to AnalysisViews.tsx)
 ├── lib/                   # Utility functions
 │   ├── utils.ts           # Helper functions
 │   └── api.ts             # API client
